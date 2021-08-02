@@ -20,10 +20,14 @@ from gym.vector.utils import batch_space
 import jax
 import numpy as np
 from brax.envs import env
+from typing import ClassVar
 
 
 class GymWrapper(gym.Env):
   """A wrapper that converts Brax Env to one that follows Gym API."""
+
+  # Flag a bugfixes bug when registering brax gym env with `gym.register`.
+  _gym_disable_underscore_compat: ClassVar[bool] = True
 
   def __init__(self, environment: env.Env, seed: int = 0):
     self._environment = environment
