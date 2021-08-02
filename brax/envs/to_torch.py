@@ -47,7 +47,7 @@ class JaxToTorchWrapper(gym.Wrapper):
     def done(self, done: DeviceArray) -> Tensor:
         return jax_to_torch(done, device=self.device)
 
-    def info(self, info: DeviceArray) -> Tensor:
+    def info(self, info: Dict) -> Dict:
         return jax_to_torch(info, device=self.device)
 
     def reset(self):
@@ -67,9 +67,11 @@ class JaxToTorchWrapper(gym.Wrapper):
 @singledispatch
 def torch_to_jax(v: Any) -> Any:
     """Converts values to JAX tensors."""
+    # Don't do anything by default, and when a handler is registered for this type of
+    # value, it gets used to convert it to a torch tensor.
+    # NOTE: The alternative would be to raise an error when an unsupported value is
+    # encountered:
     # raise NotImplementedError(f"Don't know how to convert {v} to a Jax tensor")
-    # NOTE: Could also not do anything as the default, and when a new handler is
-    # registered, it gets used.
     return v
 
 

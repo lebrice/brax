@@ -26,10 +26,11 @@ from typing import ClassVar
 class GymWrapper(gym.Env):
   """A wrapper that converts Brax Env to one that follows Gym API."""
 
-  # Flag a bugfixes bug when registering brax gym env with `gym.register`.
+  # Flag that prevents `gym.register` from misinterpreting the `_step` and `_reset` as
+  # signs of a deprecated gym Env API.
   _gym_disable_underscore_compat: ClassVar[bool] = True
 
-  def __init__(self, environment: env.Env, seed: int = 0):
+  def __init__(self, environment: env.Env, backend: str = "cpu", seed: int = 0):
     self._environment = environment
     self._key = jax.random.PRNGKey(seed)
 
@@ -41,17 +42,18 @@ class GymWrapper(gym.Env):
     self.action_space = spaces.Box(-action_high, action_high, dtype=np.float32)
 
     self._state = None
+    self.backend = backend
 
     def reset(key):
       key1, key2 = jax.random.split(key)
       state = self._environment.reset(key2)
       return state, state.obs, key1
-    self._reset = jax.jit(reset)
+    self._reset = jax.jit(reset, backend=self.backend)
 
     def step(state, action):
       state = self._environment.step(state, action)
       return state, state.obs, state.reward, state.done
-    self._step = jax.jit(step, backend='cpu')
+    self._step = jax.jit(step, backend=self.backend)
 
   def reset(self):
     self._state, obs, self._key = self._reset(self._key)
@@ -68,7 +70,11 @@ class GymWrapper(gym.Env):
 class VecGymWrapper(gym.vector.VectorEnv):
   """A wrapper that converts batched Brax Env to one that follows Gym VectorEnv API."""
 
-  def __init__(self, environment: env.Env, seed: int = 0):
+  # Flag that prevents `gym.register` from misinterpreting the `_step` and `_reset` as
+  # signs of a deprecated gym Env API.
+  _gym_disable_underscore_compat: ClassVar[bool] = True
+
+  def __init__(self, environment: env.Env, backend: str = "cpu", seed: int = 0):
     self._environment = environment
     assert self._environment.batch_size  # Make sure underlying environment is batched
 
@@ -84,19 +90,20 @@ class VecGymWrapper(gym.vector.VectorEnv):
     self.single_action_space = spaces.Box(-action_high, action_high, dtype=np.float32)
     self.action_space = batch_space(self.single_action_space, self.num_envs)
     self._state = None
+    self.backend = backend
 
     def reset(key):
       keys = jax.random.split(key, self._key_size)
       state = self._environment.reset(keys[1:])
       return state, state.obs, keys[0]
 
-    self._reset = jax.jit(reset)
+    self._reset = jax.jit(reset, backend=self.backend)
 
     def step(state, action):
       state = self._environment.step(state, action)
       return state, state.obs, state.reward, state.done
 
-    self._step = jax.jit(step, backend='cpu')
+    self._step = jax.jit(step, backend=self.backend)
 
   def reset(self):
     self._state, obs, self._key = self._reset(self._key)
@@ -116,7 +123,7 @@ try:
   class VecEnvWrapper(VecEnv):
     """A wrapper that converts batched Brax Env to one that follows StableBaselines3 VecEnv API."""
 
-    def __init__(self, environment: env.Env, seed: int = 0):
+    def __init__(self, environment: env.Env, seed: int = 0, backend: str = "cpu"):
       self._environment = environment
       assert self._environment.batch_size  # Make sure underlying environment is batched
       obs_high = np.inf * np.ones(self._environment.observation_size)
@@ -127,19 +134,19 @@ try:
       self._key_size = self.num_envs + 1
       self.seed(seed)
       self._state = None
-
+      self.backend = backend
       def reset(key):
         keys = jax.random.split(key, self._key_size)
         state = self._environment.reset(keys[1:])
         return state, state.obs, keys[0]
 
-      self._reset = jax.jit(reset)
+      self._reset = jax.jit(reset, backend=self.backend)
 
       def step(state, action):
         state = self._environment.step(state, action)
         return state, state.obs, state.reward, state.done
 
-      self._step = jax.jit(step, backend='cpu')
+      self._step = jax.jit(step, backend=self.backend)
 
     def reset(self):
       self._state, obs, self._key = self._reset(self._key)
