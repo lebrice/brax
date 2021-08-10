@@ -3,8 +3,9 @@
 import warnings
 from collections import abc
 from functools import singledispatch
-from typing import Any, Union, Dict
+from typing import Any, Union, Dict, Sequence, Callable
 
+import jax
 from jax._src import dlpack as jax_dlpack
 from jaxlib.xla_extension import DeviceArray
 
@@ -49,6 +50,15 @@ def _torch_dict_to_jax(
     return type(value)(**{k: torch_to_jax(v) for k, v in value.items()})
 
 
+@torch_to_jax.register(tuple)
+@torch_to_jax.register(list)
+def _torch_sequencet_to_jax(
+    value: Sequence[Union[Tensor, Any]]
+) -> Sequence[Union[DeviceArray, Any]]:
+    """Converts a sequence of PyTorch tensors into a sequence of Jax DeviceArrays."""
+    return type(value)(torch_to_jax(v) for v in value)  # type: ignore
+
+
 @singledispatch
 def jax_to_torch(value: Any, device: Device = None) -> Any:
     """Convert JAX values to PyTorch Tensors.
@@ -80,3 +90,38 @@ def _jax_dict_to_torch(
 ) -> Dict[str, Union[Tensor, Any]]:
     """Converts a dict of Jax DeviceArrays into a dict of PyTorch tensors."""
     return type(value)(**{k: jax_to_torch(v, device=device) for k, v in value.items()})
+
+
+@jax_to_torch.register(tuple)
+@jax_to_torch.register(list)
+def _jax_sequencet_to_torch(
+    value: Sequence[Union[Tensor, Any]]
+) -> Sequence[Union[DeviceArray, Any]]:
+    """Converts a sequence of PyTorch tensors into a sequence of Jax DeviceArrays."""
+    return type(value)(jax_to_torch(v) for v in value)  # type: ignore
+
+
+@jax_to_torch.register(abc.Callable)
+def _wrap_jax_function(
+    function: Callable[[DeviceArray], DeviceArray]
+) -> Callable[[Tensor], Tensor]:
+    # TODO: Currently only really works for functions with a single input & output value
+    backward_fn = jax.jit(jax.jacobian(function))
+    # TODO: Look into using this one:
+    # forward_and_grad = jax.jit(jax.value_and_grad(function))
+
+    class WrappedJaxFunction(torch.autograd.Function):
+        @staticmethod
+        def forward(ctx, *args, **kwargs):
+            for arg in args:
+                ctx.save_for_backward(arg)
+            jax_out = function(*torch_to_jax(args), **torch_to_jax(kwargs))
+            return jax_to_torch(jax_out)
+
+        @staticmethod
+        def backward(ctx, *grad_outputs):
+            inputs = ctx.saved_tensors
+            jax_input_grads = backward_fn(*torch_to_jax(inputs))
+            return jax_to_torch(jax_input_grads)
+
+    return WrappedJaxFunction.apply
