@@ -1,9 +1,10 @@
 """ Generic functions to convert Jax DeviceArrays into PyTorch Tensors and vice-versa.
 """
+import inspect
 import warnings
 from collections import abc
 from functools import singledispatch
-from typing import Any, Union, Dict, Sequence, Callable
+from typing import Any, Callable, Dict, Sequence, Union
 
 import jax
 from jax._src import dlpack as jax_dlpack
@@ -20,6 +21,7 @@ except ImportError:
 
 from torch import Tensor
 from torch.utils import dlpack as torch_dlpack
+
 Device = Union[str, torch.device]
 
 
@@ -105,8 +107,6 @@ def _jax_sequencet_to_torch(
 def _wrap_jax_function(
     function: Callable[[DeviceArray], DeviceArray]
 ) -> Callable[[Tensor], Tensor]:
-    # TODO: Currently only really works for functions with a single input & output value
-    import inspect
     signature: inspect.Signature = inspect.signature(function)
     n_params = len(signature.parameters)
     backward_fns = [jax.jit(jax.jacobian(function, i)) for i in range(n_params)]
@@ -126,7 +126,9 @@ def _wrap_jax_function(
         @staticmethod
         def backward(ctx, *grad_outputs):
             inputs = ctx.saved_tensors
-            jax_input_grads = tuple(backward_fns[i](*torch_to_jax(inputs)) for i in range(n_params))
+            jax_input_grads = tuple(
+                backward_fns[i](*torch_to_jax(inputs)) for i in range(n_params)
+            )
             return jax_to_torch(jax_input_grads)
 
     return WrappedJaxFunction.apply
