@@ -106,22 +106,27 @@ def _wrap_jax_function(
     function: Callable[[DeviceArray], DeviceArray]
 ) -> Callable[[Tensor], Tensor]:
     # TODO: Currently only really works for functions with a single input & output value
-    backward_fn = jax.jit(jax.jacobian(function))
+    import inspect
+    signature: inspect.Signature = inspect.signature(function)
+    n_params = len(signature.parameters)
+    backward_fns = [jax.jit(jax.jacobian(function, i)) for i in range(n_params)]
     # TODO: Look into using this one:
     # forward_and_grad = jax.jit(jax.value_and_grad(function))
 
     class WrappedJaxFunction(torch.autograd.Function):
         @staticmethod
-        def forward(ctx, *args, **kwargs):
+        def forward(ctx, *args):
+            # TODO: Not sure how to save kwargs for the backward pass, so removing them
+            # for now.
             for arg in args:
                 ctx.save_for_backward(arg)
-            jax_out = function(*torch_to_jax(args), **torch_to_jax(kwargs))
+            jax_out = function(*torch_to_jax(args))
             return jax_to_torch(jax_out)
 
         @staticmethod
         def backward(ctx, *grad_outputs):
             inputs = ctx.saved_tensors
-            jax_input_grads = backward_fn(*torch_to_jax(inputs))
+            jax_input_grads = tuple(backward_fns[i](*torch_to_jax(inputs)) for i in range(n_params))
             return jax_to_torch(jax_input_grads)
 
     return WrappedJaxFunction.apply
