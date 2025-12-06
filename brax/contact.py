@@ -14,7 +14,6 @@
 
 # pylint:disable=g-multiple-import
 """Calculations for generating contacts."""
-
 from typing import Optional
 from brax import math
 from brax.base import Contact
@@ -35,8 +34,12 @@ def get(sys: System, x: Transform) -> Optional[Contact]:
   Returns:
     Contact pytree
   """
-  ncon = mjx.ncon(sys)
-  if not ncon:
+  #NOTE: THIS WAS MODIFIED SINCE AFTER MUJOCO 3.1.5, mjx.ncon IS NOT AVAILABLE
+  # ncon = mjx.ncon(sys)
+  # if not ncon:
+  #   return None
+  data = mjx.make_data(sys)
+  if data.ncon == 0:
     return None
 
   @jax.vmap
@@ -53,7 +56,7 @@ def get(sys: System, x: Transform) -> Optional[Contact]:
   )
 
   # pytype: disable=wrong-arg-types
-  d = mjx.make_data(sys).replace(geom_xpos=geom_xpos, geom_xmat=geom_xmat)
+  d = data.replace(geom_xpos=geom_xpos, geom_xmat=geom_xmat)
   d = mjx.collision(sys, d)
   # pytype: enable=wrong-arg-types
 
